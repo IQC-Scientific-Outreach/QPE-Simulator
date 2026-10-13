@@ -1,0 +1,1296 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Quantum Phase Estimation — Interactive Simulator</title>
+<style>
+  :root{
+    --void:#10131a;
+    --panel:#181d26;
+    --panel-raised:#212836;
+    --hairline:#2b3342;
+    --hairline-soft:#232a37;
+    --text:#e9edf3;
+    --text-dim:#8b96a8;
+    --text-faint:#8691a5;
+    --amber:#f0b429;      /* photon / detector glow */
+    --laser:#f0605b;      /* phase shift / U gate (4.5:1 on all panels) */
+    --coherence:#4fc3f7;  /* true phase / reference beam */
+    --violet:#9b7ff0;     /* controlled-phase gate */
+    --success:#4caf82;    /* correct bin */
+    --warn:#e0924d;       /* incorrect bin */
+    --mono: ui-monospace, "SF Mono", "Cascadia Mono", "JetBrains Mono", Consolas, monospace;
+    --sans: -apple-system, "Segoe UI", ui-sans-serif, system-ui, Roboto, Helvetica, Arial, sans-serif;
+  }
+  *{ box-sizing:border-box; }
+  html,body{ height:100%; }
+  body{
+    margin:0;
+    background:
+      radial-gradient(1200px 600px at 15% -10%, #182033 0%, transparent 60%),
+      radial-gradient(900px 500px at 110% 10%, #1a1626 0%, transparent 55%),
+      var(--void);
+    color:var(--text);
+    font-family:var(--sans);
+    -webkit-font-smoothing:antialiased;
+  }
+  ::selection{ background:rgba(79,195,247,0.3); }
+
+  .app-header{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:24px;
+    padding:18px 28px;
+    border-bottom:1px solid var(--hairline);
+    background:rgba(16,19,26,0.85);
+    backdrop-filter:blur(6px);
+    position:sticky;
+    top:0;
+    z-index:50;
+    flex-wrap:wrap;
+  }
+  .brand{ display:flex; align-items:center; gap:14px; }
+  .brand h1{ font-size:16px; margin:0; letter-spacing:0.2px; font-weight:650; }
+  .brand p{ margin:2px 0 0; font-size:12px; color:var(--text-dim); }
+
+  .tabs{ display:flex; flex-wrap:wrap; gap:4px; background:var(--panel); padding:4px; border-radius:10px; border:1px solid var(--hairline); }
+  .tab-btn{
+    appearance:none; border:none; background:transparent; color:var(--text-dim);
+    font-family:var(--sans); font-size:12.5px; font-weight:600; letter-spacing:0.1px;
+    padding:9px 14px; border-radius:7px; cursor:pointer; transition:background .15s, color .15s;
+    white-space:nowrap;
+  }
+  .tab-btn:hover{ color:var(--text); }
+  .tab-btn.active{ background:var(--panel-raised); color:var(--text); box-shadow:inset 0 0 0 1px var(--hairline); }
+  .tab-btn .dot{ display:inline-block; width:6px; height:6px; border-radius:50%; margin-right:7px; position:relative; top:-1px; }
+
+  .app-body{
+    display:grid;
+    grid-template-columns: 300px 1fr;
+    gap:20px;
+    padding:20px 28px 48px;
+    max-width:1500px;
+    margin:0 auto;
+    align-items:start;
+  }
+  @media (max-width: 880px){
+    .app-body{ grid-template-columns: 1fr; }
+    .app-body > aside{ order:2; position:static; top:auto; }
+    .app-body > main{ order:1; }
+  }
+
+  .sidebar{
+    position:sticky; top:88px;
+    background:var(--panel);
+    border:1px solid var(--hairline);
+    border-radius:14px;
+    padding:18px;
+  }
+  .sidebar h2{
+    font-size:11px; text-transform:uppercase; letter-spacing:0.09em; color:var(--text-dim);
+    margin:0 0 14px; font-weight:700; padding-bottom:10px; border-bottom:1px solid var(--hairline);
+  }
+  .field{ margin-bottom:16px; }
+  .field label{ display:flex; justify-content:space-between; align-items:baseline; font-size:12.5px; color:var(--text-dim); margin-bottom:7px; }
+  .field label .val{ font-family:var(--mono); color:var(--amber); font-size:12.5px; }
+  input[type=range]{
+    -webkit-appearance:none; appearance:none; width:100%; height:24px; background:transparent; cursor:pointer; margin:0;
+  }
+  input[type=range]::-webkit-slider-runnable-track{
+    height:4px; border-radius:2px; background:linear-gradient(90deg, var(--coherence), var(--hairline));
+  }
+  input[type=range]::-moz-range-track{
+    height:4px; border-radius:2px; background:linear-gradient(90deg, var(--coherence), var(--hairline));
+  }
+  input[type=range]::-webkit-slider-thumb{
+    -webkit-appearance:none; width:22px; height:22px; border-radius:50%;
+    background:var(--text); border:4px solid var(--coherence); cursor:pointer; margin-top:-9px;
+  }
+  input[type=range]::-moz-range-thumb{
+    width:16px; height:16px; border-radius:50%; background:var(--text); border:4px solid var(--coherence); cursor:pointer;
+  }
+  input[type=number]{
+    width:100%; background:var(--void); border:1px solid var(--hairline); color:var(--text);
+    font-family:var(--mono); font-size:12.5px; padding:7px 9px; border-radius:7px; outline:none;
+  }
+  input[type=number]:focus{ border-color:var(--coherence); }
+  .num-row{ display:flex; gap:8px; align-items:center; }
+  .num-row input[type=number]{ flex:1; }
+  .unit-tag{ font-family:var(--mono); font-size:11px; color:var(--text-faint); }
+
+  .btn{
+    width:100%; padding:11px; border-radius:8px; border:1px solid var(--hairline);
+    background:var(--panel-raised); color:var(--text); font-family:var(--sans); font-weight:650;
+    font-size:12.5px; cursor:pointer; transition:transform .08s, background .15s, border-color .15s;
+    margin-top:4px;
+  }
+  .btn:hover{ border-color:var(--coherence); }
+  .btn:active{ transform:scale(0.98); }
+  .btn.primary{ background:linear-gradient(180deg, #3fb3e6, #2f92c4); border-color:transparent; color:#08131a; }
+  .btn.primary:hover{ filter:brightness(1.08); }
+  .btn.stop{ background:linear-gradient(180deg, #c4443f, #b53f3b); border-color:transparent; color:#ffffff; }
+  .btn-row{ display:flex; gap:8px; }
+  .btn-row .btn{ margin-top:0; }
+  .divider{ height:1px; background:var(--hairline); margin:16px 0; }
+  .hint{ font-size:11.5px; color:var(--text-faint); line-height:1.5; margin-top:10px; }
+
+  /* ---- Accessibility helpers ---- */
+  .sr-only{
+    position:absolute !important; width:1px; height:1px; padding:0; margin:-1px;
+    overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0;
+  }
+  .skip-link{
+    position:absolute; left:12px; top:-60px; z-index:100; padding:10px 14px; border-radius:8px;
+    background:var(--coherence); color:#08131a; font-weight:700; text-decoration:none;
+  }
+  .skip-link:focus{ top:12px; }
+  main:focus{ outline:none; }
+  :focus-visible{ outline:3px solid var(--amber); outline-offset:2px; }
+  input[type=range]:focus-visible{ outline-offset:4px; border-radius:4px; }
+  input[type=number]:focus-visible{ outline:3px solid var(--amber); outline-offset:1px; }
+  .table-scroll:focus-visible{ outline:3px solid var(--amber); outline-offset:2px; }
+  @media (max-width: 880px){
+    .app-header{ position:static; padding:14px 16px; }
+    .app-body{ padding:16px 16px 40px; }
+    .tab-btn{ white-space:normal; text-align:left; }
+  }
+  @media (prefers-reduced-motion: reduce){
+    *, *::before, *::after{ transition:none !important; animation:none !important; scroll-behavior:auto !important; }
+    .qsq.glow{ box-shadow:none; }
+  }
+
+  .view{ display:none; }
+  .view.active{ display:block; }
+
+  .card{
+    background:var(--panel);
+    border:1px solid var(--hairline);
+    border-radius:14px;
+    padding:20px;
+    margin-bottom:20px;
+  }
+  .card h2{ margin:0 0 4px; font-size:14px; font-weight:650; }
+  .card .sub{ margin:0 0 16px; font-size:12.5px; color:var(--text-dim); line-height:1.5; }
+
+  /* Interferometer view */
+  .mzi-wrap{ background:radial-gradient(circle at 30% 20%, #141a24, #10131a); border-radius:10px; border:1px solid var(--hairline-soft); padding:12px 6px; }
+  .detector-readout{ display:flex; gap:26px; justify-content:center; margin-top:10px; flex-wrap:wrap; }
+  .det-chip{ display:flex; align-items:center; gap:10px; padding:8px 14px; border-radius:9px; background:var(--panel-raised); border:1px solid var(--hairline); }
+  .det-led{ width:14px; height:14px; border-radius:50%; background:#2a2f3a; box-shadow:inset 0 0 3px #000; transition:background .1s, box-shadow .1s; }
+  .det-led.d0{ }
+  .det-led.on0{ background:var(--coherence); box-shadow:0 0 14px var(--coherence); }
+  .det-led.on1{ background:var(--laser); box-shadow:0 0 14px var(--laser); }
+  .det-text .name{ font-size:12px; font-weight:700; color:var(--text); }
+  .det-text .stat{ font-family:var(--mono); font-size:11.5px; color:var(--text-dim); }
+
+  .circuit-row{ display:grid; grid-template-columns: 1fr 1fr; gap:16px; margin-top:18px; }
+  @media (max-width:760px){ .circuit-row{ grid-template-columns:1fr; } }
+  .circuit-block{ background:var(--panel-raised); border:1px solid var(--hairline); border-radius:12px; padding:16px; }
+  .circuit-block h3{ margin:0 0 10px; font-size:12.5px; color:var(--text-dim); font-weight:700; text-transform:uppercase; letter-spacing:0.06em; }
+  .qubit-squares{ display:flex; gap:8px; }
+  .qsq{
+    width:44px; height:44px; border-radius:8px; display:flex; align-items:center; justify-content:center;
+    font-family:var(--mono); font-weight:700; font-size:19px; border:2px solid var(--hairline);
+    background:var(--void); color:var(--text-faint); transition:box-shadow .15s, background .15s, border-color .15s;
+  }
+  .qsq.bit0{ background:#153042; border-color:var(--coherence); color:var(--text); }
+  .qsq.bit1{ background:#3a1616; border-color:var(--laser); color:var(--text); }
+  .qsq.glow{ box-shadow:0 0 16px currentColor; }
+  .pred-row{ display:flex; gap:14px; align-items:flex-start; margin-top:12px; flex-wrap:wrap; }
+  .pred-readouts{ font-family:var(--mono); font-size:12px; color:var(--text-dim); line-height:1.9; min-width:150px; }
+  .pred-readouts .big{ font-size:13px; color:var(--text); }
+  .state-counts{ font-family:var(--mono); font-size:11.5px; color:var(--text-dim); line-height:1.75; }
+  .state-counts .lead{ color:var(--amber); font-weight:700; }
+
+  /* Counts view layout */
+  .split{ display:grid; grid-template-columns: 300px 1fr; gap:16px; }
+  @media (max-width:1000px){ .split{ grid-template-columns:1fr; } }
+  table.data-table{ width:100%; border-collapse:collapse; font-family:var(--mono); font-size:12px; }
+  table.data-table th{ text-align:center; font-family:var(--sans); font-size:10.5px; text-transform:uppercase; letter-spacing:0.06em; color:var(--text-dim); padding:8px 4px; border-bottom:1px solid var(--hairline); position:sticky; top:0; background:var(--panel); }
+  table.data-table td{ text-align:center; padding:6px 4px; border-bottom:1px solid var(--hairline-soft); color:#c7cedb; }
+  table.data-table tr.peak td{ color:var(--amber); font-weight:700; }
+  .table-scroll{ max-height:360px; overflow-y:auto; border:1px solid var(--hairline-soft); border-radius:10px; background:var(--void); }
+  canvas{ display:block; width:100%; }
+  .chart-box{ background:var(--void); border:1px solid var(--hairline-soft); border-radius:10px; padding:8px; }
+  .stats-bar{ display:flex; justify-content:space-around; flex-wrap:wrap; gap:12px; margin-top:14px; padding:14px; background:var(--panel-raised); border-radius:10px; border:1px solid var(--hairline); }
+  .stat{ text-align:center; }
+  .stat .label{ font-size:10.5px; text-transform:uppercase; letter-spacing:0.07em; color:var(--text-faint); }
+  .stat .value{ font-family:var(--mono); font-size:17px; font-weight:700; margin-top:4px; }
+
+  .legend{ display:flex; gap:22px; flex-wrap:wrap; margin-bottom:6px; font-size:11.5px; color:var(--text-dim); }
+  .legend .item{ display:flex; align-items:center; gap:7px; }
+  .legend .swatch{ width:16px; height:3px; border-radius:2px; }
+  .legend .swatch.box{ width:14px; height:11px; border-radius:2px; border:1.5px dashed var(--text-faint); background:none; }
+  .legend .swatch.star{ width:11px; height:11px; background:var(--amber); clip-path:polygon(50% 0%, 61% 35%, 98% 35%, 68% 57%, 79% 91%, 50% 70%, 21% 91%, 32% 57%, 2% 35%, 39% 35%); }
+  .legend .swatch.fill{ background:rgba(79,195,247,0.35); height:10px; border-radius:2px; }
+
+  footer{ text-align:center; padding:26px; color:var(--text-faint); font-size:11.5px; }
+  footer a{ color:var(--text-dim); }
+
+  code.k{ background:var(--void); border:1px solid var(--hairline-soft); padding:1px 5px; border-radius:4px; font-family:var(--mono); color:var(--coherence); }
+</style>
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to main content</a>
+
+<header class="app-header">
+  <div class="brand">
+    <div>
+      <h1>Quantum Phase Estimation</h1>
+      <p>Photon-counting simulator · runs entirely in your browser</p>
+    </div>
+  </div>
+  <nav class="tabs" id="tabNav" role="tablist" aria-label="Simulator views">
+    <button class="tab-btn active" id="tab-interferometer" data-tab="interferometer" role="tab" aria-selected="true" aria-controls="view-interferometer"><span aria-hidden="true" class="dot" style="background:var(--coherence)"></span>Single-Shot Interferometer</button>
+    <button class="tab-btn" id="tab-counts" data-tab="counts" role="tab" aria-selected="false" aria-controls="view-counts" tabindex="-1"><span aria-hidden="true" class="dot" style="background:var(--amber)"></span>Counts View</button>
+    <button class="tab-btn" id="tab-scaling" data-tab="scaling" role="tab" aria-selected="false" aria-controls="view-scaling" tabindex="-1"><span aria-hidden="true" class="dot" style="background:var(--violet)"></span>1–10 Qubit Scaling</button>
+  </nav>
+</header>
+
+<div class="app-body">
+  <!-- ============ SIDEBAR: INTERFEROMETER CONTROLS ============ -->
+  <aside class="sidebar" id="panel-interferometer" aria-labelledby="h-interf-controls">
+    <h2 id="h-interf-controls">Interferometer Controls</h2>
+
+    <div class="field">
+      <label for="thetaRange">Angle (θ) <span class="val" id="thetaVal" aria-hidden="true">0.750 π</span></label>
+      <div style="display:flex; justify-content:center; margin:10px 0 14px;">
+        <svg id="dial" width="120" height="120" viewBox="0 0 120 120" style="cursor:grab; touch-action:none;" aria-hidden="true" focusable="false">
+          <circle cx="60" cy="60" r="52" fill="#10131a" stroke="#2b3342" stroke-width="2"></circle>
+          <g id="dialTicks"></g>
+          <line id="dialNeedle" x1="60" y1="60" x2="60" y2="14" stroke="#4fc3f7" stroke-width="3" stroke-linecap="round"></line>
+          <circle cx="60" cy="60" r="6" fill="#e9edf3"></circle>
+        </svg>
+      </div>
+      <input type="range" id="thetaRange" min="0" max="2" step="0.001" value="0.75" aria-valuetext="0.750 pi radians">
+    </div>
+
+    <div class="btn-row" style="margin-bottom:8px;">
+      <button class="btn primary" id="fireOnceBtn">Fire Photon</button>
+    </div>
+    <div class="btn-row">
+      <button class="btn" id="autoFireBtn" aria-pressed="false">Start Auto-Fire</button>
+    </div>
+    <button class="btn" id="resetCountsBtn" style="margin-top:8px;">Reset Counts</button>
+
+    <div class="divider"></div>
+    <p class="hint">Each photon travels both arms of the interferometer at once. The phase shift <code class="k">e^iφ</code> in the upper arm sets how it interferes with itself when the arms recombine — that interference pattern is what a phase estimation circuit is built to read out.</p>
+  </aside>
+
+  <!-- ============ SIDEBAR: EXPERIMENT CONTROLS (shared by Counts + Scaling) ============ -->
+  <aside class="sidebar" id="panel-experiment" style="display:none;" aria-labelledby="h-exp-controls">
+    <h2 id="h-exp-controls">Experiment Controls</h2>
+
+    <div class="field">
+      <label for="phaseRange">Target Phase (φ) <span class="val" id="phaseVal" aria-hidden="true">0.500 π</span></label>
+      <input type="range" id="phaseRange" min="0" max="2" step="0.001" value="0.5" aria-valuetext="0.500 pi radians">
+    </div>
+
+    <div class="field">
+      <label for="shotsInput">Shots</label>
+      <div class="num-row">
+        <input type="number" id="shotsInput" min="1" max="100000000" step="100" value="100">
+      </div>
+    </div>
+
+    <div class="field">
+      <label for="photonsInput">Photons per Shot</label>
+      <div class="num-row">
+        <input type="number" id="photonsInput" min="1" max="1000" step="1" value="1">
+      </div>
+    </div>
+
+    <button class="btn primary" id="refreshBtn">Refresh Simulation</button>
+
+    <div class="divider"></div>
+
+    <div class="field" style="margin-bottom:4px;">
+      <label for="qubitsInput">Active Qubits (Detail View)</label>
+      <div class="num-row">
+        <input type="number" id="qubitsInput" min="1" max="10" step="1" value="3" aria-describedby="qubitsHint">
+      </div>
+    </div>
+    <p class="hint" id="qubitsHint">This value also sets the resource budget (n × shots) shared across the 1–10 qubit scaling comparison.</p>
+  </aside>
+
+  <!-- ============ MAIN CONTENT ============ -->
+  <main id="main" tabindex="-1">
+
+    <!-- TAB 1: INTERFEROMETER -->
+    <section class="view active" id="view-interferometer" role="tabpanel" aria-labelledby="tab-interferometer">
+      <div class="card">
+        <h2>Mach–Zehnder Interferometer</h2>
+        <p class="sub">A single photon enters, splits across two arms, picks up a phase shift <code class="k">e^iφ</code> in the upper arm, and recombines. Detector 0 and Detector 1 click with probabilities set entirely by θ.</p>
+        <div class="mzi-wrap">
+          <svg id="mziSvg" viewBox="0 0 640 260" width="100%" style="max-height:280px;" role="img" aria-label="Mach-Zehnder interferometer diagram"></svg>
+        </div>
+        <div id="liveRegion" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></div>
+        <div class="detector-readout">
+          <div class="det-chip"><div class="det-led d0" id="led0" aria-hidden="true"></div><div class="det-text"><div class="name">Detector 0</div><div class="stat" id="det0stat">P = 0.0% · counts 0</div></div></div>
+          <div class="det-chip"><div class="det-led d1" id="led1" aria-hidden="true"></div><div class="det-text"><div class="name">Detector 1</div><div class="stat" id="det1stat">P = 0.0% · counts 0</div></div></div>
+        </div>
+      </div>
+
+      <div class="circuit-row">
+        <div class="circuit-block">
+          <h3>1-Qubit QPE Circuit</h3>
+          <svg viewBox="0 0 260 90" width="100%" style="max-height:90px; margin-bottom:12px;" role="img" aria-label="One-qubit circuit: Hadamard gate, phase gate U, Hadamard gate, then measurement">
+            <line x1="10" y1="45" x2="250" y2="45" stroke="#3a4152" stroke-width="2"></line>
+            <g transform="translate(30,15)"><rect width="50" height="50" rx="6" fill="#153a52" stroke="#4fc3f7" stroke-width="2"></rect><text x="25" y="32" fill="#4fc3f7" font-size="22" font-weight="700" text-anchor="middle" font-family="ui-monospace,monospace">H</text></g>
+            <g transform="translate(105,15)"><rect width="50" height="50" rx="6" fill="#4a1c1c" stroke="#f0605b" stroke-width="2"></rect><text x="25" y="32" fill="#f0605b" font-size="20" font-weight="700" text-anchor="middle" font-family="ui-monospace,monospace">U</text></g>
+            <g transform="translate(180,15)"><rect width="50" height="50" rx="6" fill="#153a52" stroke="#4fc3f7" stroke-width="2"></rect><text x="25" y="32" fill="#4fc3f7" font-size="22" font-weight="700" text-anchor="middle" font-family="ui-monospace,monospace">H</text></g>
+          </svg>
+          <div class="qubit-squares" id="sq1" role="group" aria-label="1-qubit measured bit"><div class="qsq" data-i="0">-</div></div>
+          <div class="pred-row">
+            <div class="pred-readouts">
+              <div class="big" id="shotPhase1">Shot Phase: --</div>
+              <div id="cumulPhase1">Cumulative Phase: --</div>
+              <div id="cumulErr1">Error: --</div>
+            </div>
+            <div class="state-counts" id="stateCounts1"></div>
+          </div>
+        </div>
+
+        <div class="circuit-block">
+          <h3>2-Qubit QPE Circuit</h3>
+          <svg viewBox="0 0 260 130" width="100%" style="max-height:130px; margin-bottom:12px;" role="img" aria-label="Two-qubit inverse QFT circuit: Hadamard on qubit 1, controlled R2 inverse from qubit 1 to qubit 2, then Hadamard on qubit 2">
+            <line x1="10" y1="30" x2="250" y2="30" stroke="#3a4152" stroke-width="2"></line>
+            <line x1="10" y1="95" x2="250" y2="95" stroke="#3a4152" stroke-width="2"></line>
+            <g transform="translate(20,5)"><rect width="44" height="44" rx="6" fill="#153a52" stroke="#4fc3f7" stroke-width="2"></rect><text x="22" y="29" fill="#4fc3f7" font-size="19" font-weight="700" text-anchor="middle" font-family="ui-monospace,monospace">H</text></g>
+            <line x1="120" y1="30" x2="120" y2="95" stroke="#9b7ff0" stroke-width="3"></line>
+            <circle cx="120" cy="30" r="7" fill="#9b7ff0"></circle>
+            <g transform="translate(96,72)"><circle cx="24" cy="24" r="26" fill="#2a2044" stroke="#9b7ff0" stroke-width="2"></circle><text x="20" y="30" fill="#9b7ff0" font-size="17" font-weight="700" text-anchor="middle" font-family="ui-monospace,monospace">R2</text><text x="38" y="18" fill="#9b7ff0" font-size="11" font-family="ui-monospace,monospace">-1</text></g>
+            <g transform="translate(190,73)"><rect width="44" height="44" rx="6" fill="#153a52" stroke="#4fc3f7" stroke-width="2"></rect><text x="22" y="29" fill="#4fc3f7" font-size="19" font-weight="700" text-anchor="middle" font-family="ui-monospace,monospace">H</text></g>
+          </svg>
+          <div class="qubit-squares" id="sq2" role="group" aria-label="2-qubit measured bits"><div class="qsq" data-i="0">-</div><div class="qsq" data-i="1">-</div></div>
+          <div class="pred-row">
+            <div class="pred-readouts">
+              <div class="big" id="shotPhase2">Shot Phase: --</div>
+              <div id="cumulPhase2">Cumulative Phase: --</div>
+              <div id="cumulErr2">Error: --</div>
+            </div>
+            <div class="state-counts" id="stateCounts2"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB 2: COUNTS VIEW -->
+    <section class="view" id="view-counts" role="tabpanel" aria-labelledby="tab-counts" hidden>
+      <div class="card">
+        <h2>Counts View</h2>
+        <p class="sub">Simulates <span id="countsSummary">100 shots</span> of an <span id="countsQ">3</span>-qubit phase estimation circuit. Bars show measured counts per basis state; the dashed curve is the theoretical distribution.</p>
+        <div class="split">
+          <div class="table-scroll" tabindex="0" role="region" aria-label="Counts table, scrollable">
+            <table class="data-table">
+              <caption class="sr-only">Measured counts per basis state</caption>
+              <thead><tr><th scope="col">State |x⟩</th><th scope="col">Phase</th><th scope="col">Counts</th></tr></thead>
+              <tbody id="countsTableBody"></tbody>
+            </table>
+          </div>
+          <div class="chart-box">
+            <canvas id="countsCanvas" height="360" role="img" aria-label="Bar chart of measured counts per state"></canvas>
+          </div>
+        </div>
+        <div class="stats-bar" role="group" aria-label="Summary statistics">
+          <div class="stat"><div class="label">Estimated Phase</div><div class="value" id="statEst" style="color:var(--amber)">--</div></div>
+          <div class="stat"><div class="label">Standard Error</div><div class="value" id="statSpread" style="color:var(--text-dim)">--</div></div>
+          <div class="stat"><div class="label">Error</div><div class="value" id="statErr" style="color:var(--laser)">--</div></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB 3: SCALING -->
+    <section class="view" id="view-scaling" role="tabpanel" aria-labelledby="tab-scaling" hidden>
+      <div class="card">
+        <h2>1–10 Qubit Scaling</h2>
+        <p class="sub">A fixed resource budget (active qubits × shots) is redistributed across circuits of 1 to 10 qubits, so using more qubits means fewer shots each. See how estimate precision trades against circuit size.</p>
+        <div class="legend" aria-hidden="true">
+          <div class="item"><span class="swatch" style="background:var(--coherence)"></span>True Phase</div>
+          <div class="item"><span class="swatch box"></span>Target Bin (centered)</div>
+          <div class="item"><span class="swatch star"></span>Estimate</div>
+          <div class="item"><span class="swatch fill"></span>Shot Noise</div>
+        </div>
+        <div class="chart-box">
+          <canvas id="scalingCanvas" height="760" role="img" aria-label="Scaling comparison chart. Full results are in the table below."></canvas>
+        </div>
+        <table class="sr-only">
+          <caption>Phase estimate for each circuit size under a shared resource budget</caption>
+          <thead><tr><th scope="col">Qubits</th><th scope="col">Shots</th><th scope="col">Estimate</th><th scope="col">Error</th><th scope="col">Bin size</th><th scope="col">Result</th></tr></thead>
+          <tbody id="scalingTableBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<footer>Standalone client-side port of the QPE Simulator — no server, no install, all computation runs locally in your browser.</footer>
+
+<script>
+(function(){
+"use strict";
+
+/* ============================================================
+   CORE QPE MATH  (ported from app/calc.py)
+   Phase values here are "fractions of a full circle" in [0,1).
+   The UI expresses phase in units of pi over [0, 2] (i.e. 0..2*pi),
+   consistent with the original desktop app's USE_RADIANS=True mode.
+============================================================ */
+
+function qpeP(n, x, phaseFrac){
+  const N = Math.pow(2, n);
+  if (Math.abs(phaseFrac - x / N) < 1e-9) return 1.0;
+  const num = Math.pow(Math.sin(Math.PI * (N * phaseFrac - x)), 2);
+  const denom = Math.pow(Math.sin(Math.PI * (phaseFrac - x / N)), 2);
+  if (Math.abs(denom) < 1e-15) return 1.0;
+  return (1 / Math.pow(2, n * 2)) * num / denom;
+}
+
+function getIdealProbs(n, phaseFrac){
+  const N = Math.pow(2, n);
+  const arr = new Array(N);
+  let sum = 0;
+  for (let x = 0; x < N; x++){ arr[x] = qpeP(n, x, phaseFrac); sum += arr[x]; }
+  if (sum > 0) for (let x = 0; x < N; x++) arr[x] /= sum;
+  return arr;
+}
+
+function getCircularStats(counts, nQubits){
+  const N = Math.pow(2, nQubits);
+  let total = 0;
+  for (let i = 0; i < N; i++) total += counts[i];
+  if (total === 0) return { mean: 0.0, std: 1.0 };
+
+  let sinSum = 0, cosSum = 0;
+  for (let i = 0; i < N; i++){
+    const angle = (2 * Math.PI * i) / N;
+    sinSum += counts[i] * Math.sin(angle);
+    cosSum += counts[i] * Math.cos(angle);
+  }
+  let rLen = Math.sqrt(sinSum * sinSum + cosSum * cosSum) / total;
+  let meanAngle = Math.atan2(sinSum, cosSum);
+  if (meanAngle < 0) meanAngle += 2 * Math.PI;
+  const meanEst = meanAngle / (2 * Math.PI);
+
+  rLen = Math.min(Math.max(rLen, 1e-9), 1.0);
+  const stdRad = Math.sqrt(-2 * Math.log(rLen));
+  const stdFrac = stdRad / (2 * Math.PI);
+  return { mean: meanEst, std: stdFrac };
+}
+
+function getTheoreticalCurve(n, phaseFrac, totalCounts, points){
+  points = points || 400;
+  const N = Math.pow(2, n);
+  const xs = new Array(points);
+  const ys = new Array(points);
+  for (let i = 0; i < points; i++){
+    const x = (i / (points - 1)) * N;
+    const delta = phaseFrac - x / N;
+    const num = Math.pow(Math.sin(Math.PI * N * delta), 2);
+    const denom = Math.pow(Math.sin(Math.PI * delta), 2);
+    let yProb = (1 / (N * N)) * (num / denom);
+    if (!isFinite(yProb) || isNaN(yProb)) yProb = 1.0;
+    xs[i] = x;
+    ys[i] = yProb * totalCounts;
+  }
+  return { xs: xs, ys: ys };
+}
+
+/* -------- fast multinomial sampling (O(#bins), safe for huge shot counts) -------- */
+let _spareNormal = null;
+function randNormal(){
+  if (_spareNormal !== null){ const v = _spareNormal; _spareNormal = null; return v; }
+  let u, v, s;
+  do { u = Math.random() * 2 - 1; v = Math.random() * 2 - 1; s = u*u + v*v; } while (s >= 1 || s === 0);
+  const mul = Math.sqrt(-2 * Math.log(s) / s);
+  _spareNormal = v * mul;
+  return u * mul;
+}
+function sampleBinomial(n, p){
+  if (n <= 0 || p <= 0) return 0;
+  if (p >= 1) return n;
+  if (n < 40){
+    let c = 0;
+    for (let i = 0; i < n; i++) if (Math.random() < p) c++;
+    return c;
+  }
+  const mean = n * p;
+  const sd = Math.sqrt(n * p * (1 - p));
+  let v = Math.round(mean + sd * randNormal());
+  return Math.min(Math.max(v, 0), n);
+}
+function sampleMultinomial(total, probs){
+  const k = probs.length;
+  const counts = new Array(k).fill(0);
+  let remaining = total;
+  let remProb = 1.0;
+  for (let i = 0; i < k - 1; i++){
+    if (remaining <= 0) break;
+    let p = remProb > 1e-12 ? probs[i] / remProb : 0;
+    p = Math.min(Math.max(p, 0), 1);
+    const x = sampleBinomial(remaining, p);
+    counts[i] = x;
+    remaining -= x;
+    remProb -= probs[i];
+  }
+  if (remaining > 0) counts[k - 1] += remaining;
+  return counts;
+}
+
+function fmt(v, d){ return v.toFixed(d === undefined ? 3 : d); }
+function clamp(v, a, b){ return Math.min(Math.max(v, a), b); }
+function debounce(fn, ms){
+  let t = null;
+  return function(){
+    const args = arguments;
+    clearTimeout(t);
+    t = setTimeout(function(){ fn.apply(null, args); }, ms);
+  };
+}
+
+/* ============================================================
+   TAB SWITCHING
+============================================================ */
+const tabButtons = document.querySelectorAll(".tab-btn");
+const views = {
+  interferometer: document.getElementById("view-interferometer"),
+  counts: document.getElementById("view-counts"),
+  scaling: document.getElementById("view-scaling")
+};
+const panelInterf = document.getElementById("panel-interferometer");
+const panelExp = document.getElementById("panel-experiment");
+
+function showTab(name, focusTab){
+  tabButtons.forEach(b => {
+    const on = b.dataset.tab === name;
+    b.classList.toggle("active", on);
+    b.setAttribute("aria-selected", on ? "true" : "false");
+    b.tabIndex = on ? 0 : -1;
+    if (on && focusTab) b.focus();
+  });
+  Object.keys(views).forEach(k => {
+    views[k].classList.toggle("active", k === name);
+    views[k].hidden = (k !== name);
+  });
+  panelInterf.style.display = (name === "interferometer") ? "block" : "none";
+  panelExp.style.display = (name === "interferometer") ? "none" : "block";
+
+  if (name === "interferometer"){
+    drawMZI();
+  } else if (name === "counts"){
+    resizeAndDrawCounts();
+  } else if (name === "scaling"){
+    resizeAndDrawScaling();
+  }
+}
+tabButtons.forEach(b => b.addEventListener("click", () => showTab(b.dataset.tab)));
+// WAI-ARIA tabs keyboard pattern: arrows / Home / End move between tabs
+document.getElementById("tabNav").addEventListener("keydown", (e) => {
+  const list = Array.from(tabButtons);
+  const idx = list.indexOf(document.activeElement);
+  if (idx < 0) return;
+  let next = null;
+  if (e.key === "ArrowRight" || e.key === "ArrowDown") next = (idx + 1) % list.length;
+  else if (e.key === "ArrowLeft" || e.key === "ArrowUp") next = (idx - 1 + list.length) % list.length;
+  else if (e.key === "Home") next = 0;
+  else if (e.key === "End") next = list.length - 1;
+  if (next === null) return;
+  e.preventDefault();
+  showTab(list[next].dataset.tab, true);
+});
+
+const liveRegion = document.getElementById("liveRegion");
+function announce(msg){
+  // clear then set so identical consecutive messages are still read
+  liveRegion.textContent = "";
+  setTimeout(() => { liveRegion.textContent = msg; }, 30);
+}
+const reducedMotion = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+/* ============================================================
+   TAB 1 — SINGLE-SHOT INTERFEROMETER
+============================================================ */
+const interf = { theta: 0.75, autoTimer: null, c0: 0, c1: 0, p0: 1, p1: 0 };
+
+const thetaRange = document.getElementById("thetaRange");
+const thetaVal = document.getElementById("thetaVal");
+const dialNeedle = document.getElementById("dialNeedle");
+const dialTicks = document.getElementById("dialTicks");
+const fireOnceBtn = document.getElementById("fireOnceBtn");
+const autoFireBtn = document.getElementById("autoFireBtn");
+const resetCountsBtn = document.getElementById("resetCountsBtn");
+const led0 = document.getElementById("led0");
+const led1 = document.getElementById("led1");
+const det0stat = document.getElementById("det0stat");
+const det1stat = document.getElementById("det1stat");
+
+// build tick marks on the dial
+(function buildTicks(){
+  const cx = 60, cy = 60, rOuter = 52, rInner = 45;
+  for (let i = 0; i < 24; i++){
+    const a = (i / 24) * 2 * Math.PI;
+    const x1 = cx + rInner * Math.sin(a), y1 = cy - rInner * Math.cos(a);
+    const x2 = cx + rOuter * Math.sin(a), y2 = cy - rOuter * Math.cos(a);
+    const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+    line.setAttribute("x1", x1); line.setAttribute("y1", y1);
+    line.setAttribute("x2", x2); line.setAttribute("y2", y2);
+    line.setAttribute("stroke", i % 6 === 0 ? "#4a5468" : "#262d3a");
+    line.setAttribute("stroke-width", i % 6 === 0 ? "2" : "1");
+    dialTicks.appendChild(line);
+  }
+})();
+
+function setNeedle(thetaFrac){
+  // thetaFrac in [0,2] (pi-units); map to 0..2pi rotation, 0 at top, clockwise
+  const ang = (thetaFrac / 2) * 2 * Math.PI;
+  const x2 = 60 + 40 * Math.sin(ang);
+  const y2 = 60 - 40 * Math.cos(ang);
+  dialNeedle.setAttribute("x2", x2);
+  dialNeedle.setAttribute("y2", y2);
+}
+
+function updateInterfProbabilities(){
+  const theta = interf.theta * Math.PI; // radians, 0..2pi
+  interf.p0 = Math.pow(Math.cos(theta / 2), 2);
+  interf.p1 = Math.pow(Math.sin(theta / 2), 2);
+  thetaVal.textContent = fmt(interf.theta, 3) + " π";
+  thetaRange.setAttribute("aria-valuetext", fmt(interf.theta, 3) + " pi radians");
+  setNeedle(interf.theta);
+  det0stat.textContent = "P = " + fmt(interf.p0 * 100, 1) + "% · counts " + interf.c0;
+  det1stat.textContent = "P = " + fmt(interf.p1 * 100, 1) + "% · counts " + interf.c1;
+  drawMZI();
+}
+
+function setTheta(v, fromDrag){
+  interf.theta = clamp(v, 0, 2);
+  thetaRange.value = interf.theta;
+  updateInterfProbabilities();
+}
+
+thetaRange.addEventListener("input", () => setTheta(parseFloat(thetaRange.value)));
+
+/* dial dragging */
+(function dialDrag(){
+  const svg = document.getElementById("dial");
+  let dragging = false;
+  function angleFromEvent(evt){
+    const rect = svg.getBoundingClientRect();
+    const cx = rect.left + rect.width / 2;
+    const cy = rect.top + rect.height / 2;
+    const clientX = evt.touches ? evt.touches[0].clientX : evt.clientX;
+    const clientY = evt.touches ? evt.touches[0].clientY : evt.clientY;
+    const dx = clientX - cx, dy = clientY - cy;
+    let a = Math.atan2(dx, -dy); // 0 at top, clockwise positive
+    if (a < 0) a += 2 * Math.PI;
+    return (a / (2 * Math.PI)) * 2; // 0..2 (pi units)
+  }
+  function start(e){ dragging = true; svg.style.cursor = "grabbing"; move(e); e.preventDefault(); }
+  function move(e){ if (!dragging) return; setTheta(angleFromEvent(e), true); }
+  function end(){ dragging = false; svg.style.cursor = "grab"; }
+  svg.addEventListener("mousedown", start);
+  window.addEventListener("mousemove", move);
+  window.addEventListener("mouseup", end);
+  svg.addEventListener("touchstart", start, { passive: false });
+  window.addEventListener("touchmove", move, { passive: false });
+  window.addEventListener("touchend", end);
+})();
+
+/* --- 1-qubit and 2-qubit prediction widgets --- */
+function makePredictionWidget(numQubits, squaresEl, shotPhaseEl, cumulPhaseEl, cumulErrEl, stateCountsEl){
+  const numStates = Math.pow(2, numQubits);
+  const state = { counts: new Array(numStates).fill(0), totalShots: 0, phaseSum: 0 };
+  const squares = squaresEl.querySelectorAll(".qsq");
+
+  function renderStateCounts(){
+    let html = "";
+    for (let i = 0; i < numStates; i++){
+      const phaseVal = i * (1 / numStates) * 2;
+      const bits = i.toString(2).padStart(numQubits, "0");
+      html += '<div>' + fmt(phaseVal, 2) + 'π (' + bits + '): <span class="lead">' + state.counts[i] + '</span></div>';
+    }
+    stateCountsEl.innerHTML = html;
+  }
+  renderStateCounts();
+
+  return {
+    update: function(stateVal, truePhaseFrac /* 0..1 fraction */){
+      for (let i = 0; i < numQubits; i++){
+        const bit = (stateVal >> (numQubits - 1 - i)) & 1;
+        const sq = squares[i];
+        sq.textContent = String(bit);
+        sq.classList.remove("bit0", "bit1", "glow");
+        sq.classList.add(bit === 0 ? "bit0" : "bit1");
+        sq.style.color = bit === 0 ? "var(--coherence)" : "var(--laser)";
+        void sq.offsetWidth;
+        sq.classList.add("glow");
+      }
+      setTimeout(() => squares.forEach(sq => sq.classList.remove("glow")), 320);
+
+      const multiplier = 1 / numStates;
+      const predictedVal = stateVal * multiplier * 2; // pi-units
+      shotPhaseEl.textContent = "Shot Phase: " + fmt(predictedVal, 2) + "π";
+
+      state.counts[stateVal]++;
+      state.totalShots++;
+      state.phaseSum += predictedVal;
+      const cumulPhase = state.phaseSum / state.totalShots;
+      cumulPhaseEl.textContent = "Cumulative Phase: " + fmt(cumulPhase, 3) + "π";
+
+      const truePhasePi = truePhaseFrac * 2;
+      let err = Math.abs(cumulPhase - truePhasePi);
+      err = Math.min(err, 2.0 - err);
+      cumulErrEl.textContent = "Error: " + fmt(err, 3) + "π";
+      cumulErrEl.style.color = err < 1e-9 ? "var(--success)" : "var(--laser)";
+
+      renderStateCounts();
+    },
+    reset: function(){
+      state.counts.fill(0);
+      state.totalShots = 0;
+      state.phaseSum = 0;
+      squares.forEach(sq => { sq.textContent = "-"; sq.classList.remove("bit0","bit1","glow"); sq.style.color = ""; });
+      shotPhaseEl.textContent = "Shot Phase: --";
+      cumulPhaseEl.textContent = "Cumulative Phase: --";
+      cumulErrEl.textContent = "Error: --";
+      cumulErrEl.style.color = "var(--text-dim)";
+      renderStateCounts();
+    }
+  };
+}
+
+const widget1 = makePredictionWidget(1,
+  document.getElementById("sq1"), document.getElementById("shotPhase1"),
+  document.getElementById("cumulPhase1"), document.getElementById("cumulErr1"),
+  document.getElementById("stateCounts1"));
+
+const widget2 = makePredictionWidget(2,
+  document.getElementById("sq2"), document.getElementById("shotPhase2"),
+  document.getElementById("cumulPhase2"), document.getElementById("cumulErr2"),
+  document.getElementById("stateCounts2"));
+
+function flashLed(which){
+  const led = which === 0 ? led0 : led1;
+  led.classList.add(which === 0 ? "on0" : "on1");
+  setTimeout(() => led.classList.remove("on0", "on1"), 220);
+}
+
+function fireOnce(evt){
+  const manual = !!evt;
+  const phaseFrac = interf.theta / 2; // 0..1
+  // Detector click (physical MZI outcome)
+  const measured = Math.random() < interf.p0 ? 0 : 1;
+  if (measured === 0){ interf.c0++; flashLed(0); } else { interf.c1++; flashLed(1); }
+  det0stat.textContent = "P = " + fmt(interf.p0 * 100, 1) + "% · counts " + interf.c0;
+  det1stat.textContent = "P = " + fmt(interf.p1 * 100, 1) + "% · counts " + interf.c1;
+  widget1.update(measured, phaseFrac);
+
+  // 2-qubit QPE readout for the same phase
+  const probs2 = [qpeP(2,0,phaseFrac), qpeP(2,1,phaseFrac), qpeP(2,2,phaseFrac), qpeP(2,3,phaseFrac)];
+  const r = Math.random();
+  let acc = 0, chosen = 3;
+  for (let i = 0; i < 4; i++){ acc += probs2[i]; if (r <= acc){ chosen = i; break; } }
+  widget2.update(chosen, phaseFrac);
+
+  if (manual){
+    announce("Detector " + measured + " clicked. 1-qubit readout " + measured +
+      ". 2-qubit readout " + chosen.toString(2).padStart(2, "0") +
+      ", phase " + fmt(chosen * 0.5, 2) + " pi.");
+  }
+}
+fireOnceBtn.addEventListener("click", fireOnce);
+
+let autoOn = false;
+function toggleAuto(){
+  autoOn = !autoOn;
+  if (autoOn){
+    autoFireBtn.textContent = "Stop Auto-Fire";
+    autoFireBtn.setAttribute("aria-pressed", "true");
+    autoFireBtn.classList.add("stop");
+    fireOnce();
+    interf.autoTimer = setInterval(fireOnce, 500);
+  } else {
+    autoFireBtn.textContent = "Start Auto-Fire";
+    autoFireBtn.setAttribute("aria-pressed", "false");
+    autoFireBtn.classList.remove("stop");
+    clearInterval(interf.autoTimer);
+  }
+}
+autoFireBtn.addEventListener("click", toggleAuto);
+
+resetCountsBtn.addEventListener("click", () => {
+  interf.c0 = 0; interf.c1 = 0;
+  det0stat.textContent = "P = " + fmt(interf.p0 * 100, 1) + "% · counts 0";
+  det1stat.textContent = "P = " + fmt(interf.p1 * 100, 1) + "% · counts 0";
+  widget1.reset();
+  widget2.reset();
+  announce("Counts reset.");
+});
+
+/* --- MZI diagram --- */
+const mziSvg = document.getElementById("mziSvg");
+const NS = "http://www.w3.org/2000/svg";
+function svgEl(tag, attrs){
+  const el = document.createElementNS(NS, tag);
+  for (const k in attrs) el.setAttribute(k, attrs[k]);
+  return el;
+}
+function drawMZI(){
+  mziSvg.innerHTML = "";
+  mziSvg.setAttribute("aria-label",
+    "Mach-Zehnder interferometer with phase shift " + fmt(interf.theta, 3) +
+    " pi in the upper arm. Detector 0 probability " + fmt(interf.p0 * 100, 1) +
+    " percent, detector 1 probability " + fmt(interf.p1 * 100, 1) + " percent.");
+  const bs1 = { x: 90, y: 90 }, bs2 = { x: 480, y: 90 };
+  const mirrorLowY = 195;
+
+  function line(x1,y1,x2,y2,color,w){ mziSvg.appendChild(svgEl("line",{x1,y1,x2,y2,stroke:color||"#5a6376",'stroke-width':w||2})); }
+  function diag(x,y,color){ mziSvg.appendChild(svgEl("rect",{x:x-13,y:y-4,width:26,height:8,rx:2,fill:color,transform:'rotate(45 '+x+' '+y+')'})); }
+
+  // input arrow
+  line(15, bs1.y, bs1.x-14, bs1.y, "#7c8698", 2.5);
+  mziSvg.appendChild(svgEl("polygon", { points:(bs1.x-14)+","+(bs1.y-5)+" "+(bs1.x-14)+","+(bs1.y+5)+" "+(bs1.x-4)+","+bs1.y, fill:"#7c8698" }));
+  mziSvg.appendChild(svgEl("text", {x:15, y:bs1.y-14, fill:"#8b96a8", "font-size":11, "font-family":"ui-monospace,monospace"})).textContent = "input";
+
+  // upper arm: BS1 -> phase shifter -> BS2
+  line(bs1.x+14, bs1.y, 250, bs1.y, "var(--laser)".includes("var")?"#f0605b":"#f0605b");
+  const ps = svgEl("rect", { x:250, y:65, width:90, height:50, rx:8, fill:"#3a1616", stroke:"#f0605b", "stroke-width":2 });
+  mziSvg.appendChild(ps);
+  const psLabel = svgEl("text", { x:295, y:96, fill:"#f0605b", "font-size":20, "font-weight":700, "text-anchor":"middle", "font-family":"ui-monospace,monospace" });
+  psLabel.textContent = "e iφ";
+  mziSvg.appendChild(psLabel);
+  line(340, bs1.y, bs2.x-14, bs1.y, "#f0605b");
+
+  // lower arm: BS1 -> down -> mirror -> across -> mirror -> up -> BS2
+  line(bs1.x, bs1.y+14, bs1.x, mirrorLowY-14, "#5a6376");
+  diag(bs1.x, mirrorLowY, "#9b7ff0");
+  line(bs1.x+14, mirrorLowY, bs2.x-14, mirrorLowY, "#5a6376");
+  diag(bs2.x, mirrorLowY, "#9b7ff0");
+  line(bs2.x, mirrorLowY-14, bs2.x, bs2.y+14, "#5a6376");
+
+  // beam splitters
+  diag(bs1.x, bs1.y, "#4fc3f7");
+  diag(bs2.x, bs2.y, "#4fc3f7");
+
+  // outputs -> detectors
+  line(bs2.x, bs2.y-14, bs2.x, 24, "#5a6376");
+  mziSvg.appendChild(svgEl("polygon", { points:(bs2.x-5)+",30 "+(bs2.x+5)+",30 "+bs2.x+",18", fill:"#5a6376" }));
+  line(bs2.x+14, bs2.y, 560, bs2.y, "#5a6376");
+  mziSvg.appendChild(svgEl("polygon", { points:"552,"+(bs2.y-5)+" 552,"+(bs2.y+5)+" 564,"+bs2.y, fill:"#5a6376" }));
+
+  const d0on = interf.p0 > 0.5;
+  const d1on = interf.p1 > 0.5;
+  const c0 = svgEl("circle", { cx:bs2.x, cy:16, r:15, fill: shade("#4fc3f7", interf.p0), stroke:"#4fc3f7", "stroke-width":2 });
+  mziSvg.appendChild(c0);
+  const c0t = svgEl("text", { x:bs2.x, y:20, fill:"#0d0f14", "font-size":11, "font-weight":700, "text-anchor":"middle", "font-family":"ui-monospace,monospace" }); c0t.textContent="D0"; mziSvg.appendChild(c0t);
+
+  const c1 = svgEl("circle", { cx:582, cy:bs2.y, r:15, fill: shade("#f0605b", interf.p1), stroke:"#f0605b", "stroke-width":2 });
+  mziSvg.appendChild(c1);
+  const c1t = svgEl("text", { x:582, y:bs2.y+4, fill:"#0d0f14", "font-size":11, "font-weight":700, "text-anchor":"middle", "font-family":"ui-monospace,monospace" }); c1t.textContent="D1"; mziSvg.appendChild(c1t);
+}
+function shade(hex, alpha){
+  // blend hex color toward dark background based on probability (0..1)
+  const bg = [16,19,26];
+  const c = hexToRgb(hex);
+  const r = Math.round(bg[0] + (c[0]-bg[0])*alpha);
+  const g = Math.round(bg[1] + (c[1]-bg[1])*alpha);
+  const b = Math.round(bg[2] + (c[2]-bg[2])*alpha);
+  return "rgb("+r+","+g+","+b+")";
+}
+function hexToRgb(h){ h=h.replace("#",""); return [parseInt(h.substr(0,2),16), parseInt(h.substr(2,2),16), parseInt(h.substr(4,2),16)]; }
+
+updateInterfProbabilities();
+
+/* ============================================================
+   SHARED EXPERIMENT CONTROLS (Counts + Scaling tabs)
+============================================================ */
+const exp = { phase: 0.5, shots: 100, photons: 1, qubits: 3 };
+
+const phaseRange = document.getElementById("phaseRange");
+const phaseVal = document.getElementById("phaseVal");
+const shotsInput = document.getElementById("shotsInput");
+const photonsInput = document.getElementById("photonsInput");
+const qubitsInput = document.getElementById("qubitsInput");
+const refreshBtn = document.getElementById("refreshBtn");
+
+function readExpControls(){
+  exp.phase = clamp(parseFloat(phaseRange.value) || 0, 0, 2);
+  exp.shots = clamp(parseInt(shotsInput.value) || 1, 1, 100000000);
+  exp.photons = clamp(parseInt(photonsInput.value) || 1, 1, 1000);
+  exp.qubits = clamp(parseInt(qubitsInput.value) || 1, 1, 10);
+  phaseVal.textContent = fmt(exp.phase, 3) + " π";
+  phaseRange.setAttribute("aria-valuetext", fmt(exp.phase, 3) + " pi radians");
+}
+
+const scheduleRefresh = debounce(() => { readExpControls(); refreshExperiment(); }, 90);
+[phaseRange, shotsInput, photonsInput, qubitsInput].forEach(el => {
+  el.addEventListener("input", scheduleRefresh);
+});
+refreshBtn.addEventListener("click", () => { readExpControls(); refreshExperiment(); });
+
+function refreshExperiment(){
+  startCountsAnimation();
+  computeAndDrawScaling();
+}
+
+/* ============================================================
+   TAB 2 — COUNTS VIEW
+============================================================ */
+const countsCanvas = document.getElementById("countsCanvas");
+const countsTableBody = document.getElementById("countsTableBody");
+const statEst = document.getElementById("statEst");
+const statSpread = document.getElementById("statSpread");
+const statErr = document.getElementById("statErr");
+const countsSummary = document.getElementById("countsSummary");
+const countsQ = document.getElementById("countsQ");
+
+const countsAnim = { raf: null, startTime: 0, duration: 1, totalEvents: 0, currentEvents: 0, probs: [], accum: [], n: 3, phaseFrac: 0.25, yLimit: 10 };
+
+function startCountsAnimation(){
+  if (countsAnim.raf) cancelAnimationFrame(countsAnim.raf);
+
+  const n = exp.qubits;
+  const phaseFrac = exp.phase / 2;
+  const shots = exp.shots;
+  const photons = exp.photons;
+
+  countsAnim.n = n;
+  countsAnim.phaseFrac = phaseFrac;
+  countsAnim.probs = getIdealProbs(n, phaseFrac);
+  countsAnim.accum = new Array(Math.pow(2, n)).fill(0);
+  countsAnim.totalEvents = shots * photons;
+  countsAnim.currentEvents = 0;
+  countsAnim.duration = reducedMotion ? 0 : (shots > 20 ? 2.2 : Math.max(shots / 12, 0.15));
+  countsAnim.startTime = performance.now();
+
+  const maxProb = Math.max.apply(null, countsAnim.probs);
+  countsAnim.yLimit = Math.max(maxProb * countsAnim.totalEvents * 1.25, 10);
+
+  countsSummary.textContent = shots.toLocaleString() + " shots" + (photons > 1 ? " × " + photons + " photons" : "");
+  countsQ.textContent = n;
+
+  function step(now){
+    const elapsed = (now - countsAnim.startTime) / 1000;
+    let targetNow, finished;
+    if (elapsed >= countsAnim.duration){ targetNow = countsAnim.totalEvents; finished = true; }
+    else { targetNow = Math.floor((elapsed / countsAnim.duration) * countsAnim.totalEvents); finished = false; }
+
+    const batch = targetNow - countsAnim.currentEvents;
+    if (batch > 0){
+      countsAnim.currentEvents = targetNow;
+      const newCounts = sampleMultinomial(batch, countsAnim.probs);
+      for (let i = 0; i < newCounts.length; i++) countsAnim.accum[i] += newCounts[i];
+      renderCounts();
+    }
+    if (!finished){ countsAnim.raf = requestAnimationFrame(step); }
+    else {
+      countsAnim.raf = null;
+      if (views.counts.classList.contains("active")){
+        announce("Simulation complete. Estimated phase " + statEst.textContent.replace("π", " pi") +
+          ", error " + statErr.textContent.replace("π", " pi") + ".");
+      }
+    }
+  }
+  countsAnim.raf = requestAnimationFrame(step);
+}
+
+function renderCounts(){
+  const counts = countsAnim.accum;
+  const n = countsAnim.n;
+  const N = counts.length;
+  let maxC = 0, maxIdx = 0;
+  for (let i = 0; i < N; i++) if (counts[i] > maxC){ maxC = counts[i]; maxIdx = i; }
+
+  // table
+  let rows = "";
+  for (let i = 0; i < N; i++){
+    if (counts[i] <= 0) continue;
+    const phaseVal2 = (i / N) * 2;
+    rows += '<tr class="' + (i === maxIdx && maxC > 0 ? "peak" : "") + '"><td>' + i + '</td><td>' + fmt(phaseVal2, 3) + 'π</td><td>' + counts[i] + '</td></tr>';
+  }
+  countsTableBody.innerHTML = rows || '<tr><td colspan="3" style="color:var(--text-faint); padding:16px;">No counts yet</td></tr>';
+
+  // stats
+  const stats = getCircularStats(counts, n);
+  const est = stats.mean;
+  const totalShots = counts.reduce((a,b)=>a+b,0);
+  const stdError = totalShots > 0 ? stats.std / Math.sqrt(totalShots) : 1.0;
+
+  const estPi = est * 2;
+  let errPi = Math.abs(estPi - exp.phase);
+  errPi = Math.min(errPi, 2.0 - errPi);
+  statEst.textContent = fmt(estPi, 4) + "π";
+  statErr.textContent = fmt(errPi, 4) + "π";
+  statSpread.textContent = "±" + fmt(stdError * 2, 4) + "π";
+  countsCanvas.setAttribute("aria-label",
+    "Bar chart of measured counts across " + N + " states. " +
+    (maxC > 0 ? "Most frequent state " + maxIdx + " (phase " + fmt((maxIdx / N) * 2, 3) + " pi) with " + maxC + " counts. " : "") +
+    "Dashed curve shows the theoretical distribution. Exact values are in the counts table.");
+
+  drawCountsChart();
+}
+
+function drawCountsChart(){
+  const dpr = window.devicePixelRatio || 1;
+  const rect = countsCanvas.getBoundingClientRect();
+  const cssW = rect.width || 600, cssH = 360;
+  countsCanvas.width = cssW * dpr;
+  countsCanvas.height = cssH * dpr;
+  countsCanvas.style.height = cssH + "px";
+  const ctx = countsCanvas.getContext("2d");
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, cssW, cssH);
+
+  const counts = countsAnim.accum;
+  const N = counts.length;
+  const n = countsAnim.n;
+  const marginL = 46, marginR = 14, marginT = 14, marginB = 30;
+  const plotW = cssW - marginL - marginR;
+  const plotH = cssH - marginT - marginB;
+  const yMax = countsAnim.yLimit || 10;
+
+  function xOf(binIdx){ return marginL + (binIdx / N) * plotW; }
+  function yOf(v){ return marginT + plotH - (Math.min(v, yMax) / yMax) * plotH; }
+
+  // gridlines
+  ctx.strokeStyle = "#232a37";
+  ctx.lineWidth = 1;
+  ctx.fillStyle = "#5c6679";
+  ctx.font = "10px " + getComputedStyle(document.body).fontFamily;
+  const ySteps = 4;
+  for (let s = 0; s <= ySteps; s++){
+    const v = (yMax / ySteps) * s;
+    const y = yOf(v);
+    ctx.beginPath(); ctx.moveTo(marginL, y); ctx.lineTo(cssW - marginR, y); ctx.stroke();
+    ctx.fillText(Math.round(v).toLocaleString(), 4, y + 3);
+  }
+
+  // bars
+  const barW = Math.max(plotW / N * 0.7, 1);
+  let maxC = 0, maxIdx = -1;
+  for (let i = 0; i < N; i++) if (counts[i] > maxC){ maxC = counts[i]; maxIdx = i; }
+  for (let i = 0; i < N; i++){
+    if (counts[i] <= 0) continue;
+    const x = xOf(i) + (plotW / N) * 0.15;
+    const y = yOf(counts[i]);
+    ctx.fillStyle = (i === maxIdx) ? "#f0b429" : "#4fc3f7";
+    ctx.fillRect(x, y, barW, marginT + plotH - y);
+  }
+
+  // theoretical curve
+  const curve = getTheoreticalCurve(n, countsAnim.phaseFrac, countsAnim.totalEvents, 500);
+  ctx.beginPath();
+  ctx.setLineDash([5, 4]);
+  ctx.strokeStyle = "#e9edf3";
+  ctx.lineWidth = 1.6;
+  for (let i = 0; i < curve.xs.length; i++){
+    const x = marginL + (curve.xs[i] / N) * plotW;
+    const y = yOf(curve.ys[i]);
+    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  }
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // x-axis ticks
+  ctx.fillStyle = "#8b96a8";
+  ctx.textAlign = "center";
+  let step = 1;
+  if (N > 16) step = Math.ceil(N / 10);
+  for (let x = 0; x <= N; x += step){
+    if (x > N) break;
+    const px = xOf(x);
+    const phaseFracTick = (x / N) * 2;
+    ctx.fillText(fmt(phaseFracTick, 2) + "π", px, cssH - 10);
+  }
+  ctx.textAlign = "left";
+}
+
+function resizeAndDrawCounts(){ drawCountsChart(); }
+
+/* ============================================================
+   TAB 3 — 1-10 QUBIT SCALING
+============================================================ */
+const scalingCanvas = document.getElementById("scalingCanvas");
+const scalingResults = {};
+
+function computeAndDrawScaling(){
+  const tgtN = exp.qubits;
+  const tgtShots = exp.shots;
+  const tgtPhotons = exp.photons;
+  const phaseFrac = exp.phase / 2;
+  const resourceBudget = tgtN * tgtShots;
+
+  for (let n = 1; n <= 10; n++){
+    const targetShotsN = Math.max(1, Math.floor(resourceBudget / n));
+    const probsN = getIdealProbs(n, phaseFrac);
+    const totalEventsN = Math.floor(targetShotsN * tgtPhotons);
+    const countsN = sampleMultinomial(totalEventsN, probsN);
+    const stats = getCircularStats(countsN, n);
+    const total = countsN.reduce((a,b)=>a+b,0);
+    const stdErr = total > 0 ? stats.std / Math.sqrt(total) : 1.0;
+    scalingResults[n] = { phaseEst: stats.mean, stdError: stdErr, shotsCount: targetShotsN };
+  }
+  updateScalingTable(phaseFrac);
+  drawScalingChart(phaseFrac);
+}
+
+function drawScalingChart(truePhaseFrac){
+  const dpr = window.devicePixelRatio || 1;
+  const rect = scalingCanvas.getBoundingClientRect();
+  const cssW = rect.width || 900;
+  const rowH = 68, topOffset = 46;
+  const cssH = topOffset + rowH * 10 + 16;
+  scalingCanvas.width = cssW * dpr;
+  scalingCanvas.height = cssH * dpr;
+  scalingCanvas.style.height = cssH + "px";
+  const ctx = scalingCanvas.getContext("2d");
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, cssW, cssH);
+
+  const marginLeft = 118;
+  const marginRight = Math.min(230, cssW * 0.26);
+  const lineW = cssW - marginLeft - marginRight;
+
+  // header
+  ctx.fillStyle = "#8b96a8";
+  ctx.font = "700 10.5px " + getComputedStyle(document.body).fontFamily;
+  ctx.fillText("RESOURCE SETUP", 8, 18);
+  ctx.fillText("EXPERIMENT RESULT", marginLeft, 18);
+  ctx.fillText("METRICS", cssW - marginRight + 16, 18);
+  ctx.strokeStyle = "#2b3342";
+  ctx.beginPath(); ctx.moveTo(0, 26); ctx.lineTo(cssW, 26); ctx.stroke();
+
+  for (let n = 1; n <= 10; n++){
+    const i = n - 1;
+    const cy = topOffset + i * rowH + rowH / 2;
+    const data = scalingResults[n] || { phaseEst: 0, stdError: 1, shotsCount: 0 };
+
+    if (i % 2 === 0){ ctx.fillStyle = "rgba(255,255,255,0.02)"; ctx.fillRect(0, cy - rowH/2, cssW, rowH); }
+
+    ctx.fillStyle = "#e9edf3";
+    ctx.font = "700 12.5px " + getComputedStyle(document.body).fontFamily;
+    ctx.fillText(n + (n===1?" Qubit":" Qubits"), 10, cy - 8);
+    ctx.fillStyle = "#bdc3c7";
+    ctx.font = "10.5px " + getComputedStyle(document.body).fontFamily;
+    ctx.fillText("Cost: " + data.shotsCount.toLocaleString() + " shots", 10, cy + 10);
+
+    // baseline
+    ctx.strokeStyle = "#454e60";
+    ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(marginLeft, cy); ctx.lineTo(marginLeft + lineW, cy); ctx.stroke();
+
+    const N_bins = Math.pow(2, n);
+    const binW = 1 / N_bins;
+    const idealIdx = ((Math.round(truePhaseFrac * N_bins) % N_bins) + N_bins) % N_bins;
+    const idealCenter = idealIdx / N_bins;
+    let bLeft = idealCenter - binW / 2;
+    let bRight = idealCenter + binW / 2;
+
+    ctx.setLineDash([4, 3]);
+    ctx.strokeStyle = "#7f8c8d";
+    function drawBoxFrac(v1, v2){
+      const px1 = marginLeft + v1 * lineW;
+      const w = Math.max((v2 - v1) * lineW, 2);
+      ctx.strokeRect(px1, cy - 15, w, 30);
+    }
+    if (bLeft >= 0 && bRight <= 1.0){ drawBoxFrac(bLeft, bRight); }
+    else if (bLeft < 0){ drawBoxFrac(0, bRight); drawBoxFrac(1 + bLeft, 1); }
+    else if (bRight > 1.0){ drawBoxFrac(bLeft, 1); drawBoxFrac(0, bRight - 1); }
+    ctx.setLineDash([]);
+
+    const estPx = marginLeft + data.phaseEst * lineW;
+    const truePx = marginLeft + truePhaseFrac * lineW;
+    const confWidthFrac = data.stdError * 4.0;
+    const confPx = confWidthFrac * lineW;
+
+    ctx.fillStyle = "rgba(155,127,240,0.28)";
+    ctx.fillRect(estPx - confPx / 2, cy - 4, confPx, 8);
+
+    ctx.strokeStyle = "#4fc3f7";
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(truePx, cy - 20); ctx.lineTo(truePx, cy + 20); ctx.stroke();
+
+    drawStar(ctx, estPx, cy, 8, "#f0b429");
+
+    // metrics
+    const metricsX = cssW - marginRight + 16;
+    const estIdx = ((Math.round(data.phaseEst * N_bins) % N_bins) + N_bins) % N_bins;
+    const isResolved = estIdx === idealIdx;
+    let dist = Math.abs(data.phaseEst - truePhaseFrac);
+    dist = Math.min(dist, 1 - dist);
+
+    ctx.font = "700 11px " + getComputedStyle(document.body).fontFamily;
+    if (isResolved){ ctx.fillStyle = "#4caf82"; ctx.fillText("\u2714 Correct Bin", metricsX, cy - 12); }
+    else { ctx.fillStyle = "#e0924d"; ctx.fillText("\u26A0 Incorrect Bin", metricsX, cy - 12); }
+
+    ctx.font = "10.5px " + getComputedStyle(document.body).fontFamily;
+    ctx.fillStyle = "#f1c40f";
+    ctx.fillText("Est:  " + fmt(data.phaseEst * 2, 4) + "\u03c0", metricsX, cy + 1);
+    ctx.fillStyle = "#bbbbbb";
+    ctx.fillText("Err:  " + fmt(dist * 2, 4) + "\u03c0", metricsX, cy + 14);
+    ctx.fillStyle = "#7f8c8d";
+    ctx.fillText("Bin Size: " + fmt(binW * 2, 4) + "\u03c0", metricsX, cy + 27);
+  }
+}
+
+function updateScalingTable(truePhaseFrac){
+  const tbody = document.getElementById("scalingTableBody");
+  tbody.textContent = "";
+  for (let n = 1; n <= 10; n++){
+    const d = scalingResults[n];
+    const N_bins = Math.pow(2, n);
+    const idealIdx = ((Math.round(truePhaseFrac * N_bins) % N_bins) + N_bins) % N_bins;
+    const estIdx = ((Math.round(d.phaseEst * N_bins) % N_bins) + N_bins) % N_bins;
+    let dist = Math.abs(d.phaseEst - truePhaseFrac); dist = Math.min(dist, 1 - dist);
+    const cells = [n, d.shotsCount.toLocaleString(), fmt(d.phaseEst * 2, 4) + " pi",
+      fmt(dist * 2, 4) + " pi", fmt((1 / N_bins) * 2, 4) + " pi",
+      estIdx === idealIdx ? "Correct bin" : "Incorrect bin"];
+    const tr = document.createElement("tr");
+    cells.forEach(c => { const td = document.createElement("td"); td.textContent = c; tr.appendChild(td); });
+    tbody.appendChild(tr);
+  }
+}
+
+function drawStar(ctx, cx, cy, r, color){
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  for (let i = 0; i < 5; i++){
+    const angle = (Math.PI / 180) * (270 + i * 144);
+    const x = cx + r * Math.cos(angle);
+    const y = cy + r * Math.sin(angle);
+    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  }
+  ctx.closePath();
+  ctx.fill();
+}
+
+function resizeAndDrawScaling(){
+  computeAndDrawScaling();
+}
+
+/* ============================================================
+   RESIZE HANDLING
+============================================================ */
+let resizeRaf = null;
+window.addEventListener("resize", () => {
+  if (resizeRaf) cancelAnimationFrame(resizeRaf);
+  resizeRaf = requestAnimationFrame(() => {
+    if (views.counts.classList.contains("active")) drawCountsChart();
+    if (views.scaling.classList.contains("active")) drawScalingChart(exp.phase / 2);
+    if (views.interferometer.classList.contains("active")) drawMZI();
+  });
+});
+
+/* ============================================================
+   INIT
+============================================================ */
+readExpControls();
+refreshExperiment();
+showTab("interferometer");
+
+})();
+</script>
+</body>
+</html>
